@@ -1,4 +1,5 @@
 import tkinter as tk
+import tkinter.simpledialog
 import pyperclip
 import threading
 import base64
@@ -296,6 +297,24 @@ class TextTool:
                 ("URL Dec", self.url_decode),
                 ("Topmost", self.toggle_topmost),
             ]),
+            ("Discord", [
+                ("Bold", lambda: self._wrap("**", "**", "Bold")),
+                ("Italic", lambda: self._wrap("*", "*", "Italic")),
+                ("Bold Italic", lambda: self._wrap("***", "***", "Bold Italic")),
+                ("Underline", lambda: self._wrap("__", "__", "Underline")),
+                ("Strike", lambda: self._wrap("~~", "~~", "Strikethrough")),
+                ("Spoiler", lambda: self._wrap("||", "||", "Spoiler")),
+                ("Inline Code", lambda: self._wrap("`", "`", "Inline Code")),
+                ("Code Block", lambda: self._wrap("```\n", "\n```", "Code Block")),
+                ("Quote", lambda: self._prefix_line("> ", "Quote")),
+                ("H1", lambda: self._prefix_line("# ", "Heading 1")),
+                ("H2", lambda: self._prefix_line("## ", "Heading 2")),
+                ("H3", lambda: self._prefix_line("### ", "Heading 3")),
+                ("Bullets", lambda: self._prefix_line("- ", "Bullet List")),
+                ("Numbered", self._prefix_numbered),
+                ("Task List", lambda: self._prefix_line("- [ ] ", "Task List")),
+                ("Link", self.discord_link),
+            ]),
         ]
 
         self.cat_buttons = {}
@@ -357,6 +376,34 @@ class TextTool:
 
     def _apply(self, mapping, name):
         self._render(transform(self._get_input(), mapping), name)
+
+    # ── Discord markdown ──
+
+    def _wrap(self, prefix, suffix, name):
+        self._render(f"{prefix}{self._get_input()}{suffix}", name)
+
+    def _prefix_line(self, prefix, name):
+        lines = [f"{prefix}{ln}" if ln.strip() else ln
+                 for ln in self._get_input().split("\n")]
+        self._render("\n".join(lines), name)
+
+    def _prefix_numbered(self, name):
+        count = 0
+        lines = []
+        for ln in self._get_input().split("\n"):
+            if ln.strip():
+                count += 1
+                lines.append(f"{count}. {ln}")
+            else:
+                lines.append(ln)
+        self._render("\n".join(lines), name)
+
+    def discord_link(self):
+        url = tk.simpledialog.askstring("Link",
+                                        "Enter URL:",
+                                        parent=self.root)
+        if url:
+            self._wrap("[", f"]({url})", "Link")
 
     # ── Case transforms ──
 
