@@ -30,12 +30,13 @@ On Linux, your user needs read access to `/dev/input` (membership in the `input`
 
 ### Linux AppImage
 
-Requires Python with the app dependencies installed, plus `pyinstaller` and `pyinstaller-hooks-contrib` (for the GTK/GI typelib hook used by the system tray).
+Requires Python with the app dependencies installed, plus `pyinstaller` and `pyinstaller-hooks-contrib` (for the GTK/GI typelib hook used by the system tray), and `appimagetool`.
 
 ```bash
-pyinstaller --clean --noconfirm texttool.spec
-# then wrap dist/texttool/ in an AppImage (see scripts/ for the helper)
+scripts/build_appimage.sh
 ```
+
+This runs PyInstaller (`texttool.spec`) and wraps the result in `TextTool-x86_64.AppImage`.
 
 ### Windows
 
