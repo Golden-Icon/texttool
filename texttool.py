@@ -169,8 +169,24 @@ def _clip_copy(text):
 
 
 FONT_FAMILY = "Noto Sans Math"
-_BUNDLED_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "NotoSansMath-Regular.ttf")
+
+
+def _bundled_font_path():
+    """Locate the bundled font, handling the PyInstaller onedir layout."""
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base, "NotoSansMath-Regular.ttf"),
+        os.path.join(base, "_internal", "NotoSansMath-Regular.ttf"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "NotoSansMath-Regular.ttf"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+_BUNDLED_FONT = _bundled_font_path()
 
 
 def _resolve_font_family(root):
