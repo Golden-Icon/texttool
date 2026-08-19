@@ -5,12 +5,13 @@ import base64
 import urllib.parse
 import re
 import os
-import select
-import struct
+import sys
 import subprocess
 import shutil
 import pystray
 from PIL import Image, ImageDraw, ImageFont
+
+from app_platform import hotkey_listen, primary_monitor
 
 
 # ─────────────────────────────────────────────
@@ -167,77 +168,32 @@ def _clip_copy(text):
         return False
 
 
-# ─────────────────────────────────────────────
-# RAW EVDEV HOTKEY LISTENER
-# (runs unprivileged; no need for the keyboard lib or root)
-# ─────────────────────────────────────────────
-
-# linux/input-event-codes.h
-KEY_LEFTCTRL = 29
-KEY_RIGHTCTRL = 97
-KEY_LEFTSHIFT = 42
-KEY_RIGHTSHIFT = 54
-KEY_E = 18
-
-EV_KEY = 1
+FONT_FAMILY = "Noto Sans Math"
+_BUNDLED_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "NotoSansMath-Regular.ttf")
 
 
-def _list_kbd_event_paths():
-    """Yield /dev/input/eventN paths for devices that handle keyboard input."""
-    paths = []
-    try:
-        with open("/proc/bus/input/devices") as f:
-            for block in f.read().split("\n\n"):
-                if "kbd" not in block or "event" not in block:
-                    continue
-                m = re.search(r"event(\d+)", block)
-                if m:
-                    paths.append(f"/dev/input/event{m.group(1)}")
-    except FileNotFoundError:
-        pass
-    return paths
+def _resolve_font_family(root):
+    """Return a usable font family, registering the bundled font if needed."""
+    import tkinter.font as tkfont
 
-
-def _evdev_listen(callback, stop_event):
-    """Read raw input events; call callback() when Ctrl+Shift+E is pressed."""
-    fds = []
-    paths = _list_kbd_event_paths()
-    for path in paths:
+    families = set(tkfont.families(root))
+    if FONT_FAMILY in families:
+        return FONT_FAMILY
+    if sys.platform.startswith("win") and os.path.exists(_BUNDLED_FONT):
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
-            fds.append(fd)
-        except OSError:
+            import ctypes
+            added = ctypes.windll.gdi32.AddFontResourceExW(
+                _BUNDLED_FONT, 0x10, 0)  # FR_PRIVATE
+            if added and FONT_FAMILY not in set(tkfont.families(root)):
+                families = set(tkfont.families(root))
+                if FONT_FAMILY in families:
+                    return FONT_FAMILY
+        except Exception:
             pass
-    if not fds:
-        return
-
-    ctrl = False
-    shift = False
-    try:
-        while not stop_event.is_set():
-            r, _, _ = select.select(fds, [], [], 0.25)
-            for fd in r:
-                try:
-                    data = os.read(fd, 24)
-                except BlockingIOError:
-                    continue
-                if len(data) < 24:
-                    continue
-                _, _, etype, code, value = struct.unpack("llHHi", data)
-                if etype != EV_KEY:
-                    continue
-                if code in (KEY_LEFTCTRL, KEY_RIGHTCTRL):
-                    ctrl = value != 0
-                elif code in (KEY_LEFTSHIFT, KEY_RIGHTSHIFT):
-                    shift = value != 0
-                elif code == KEY_E and value == 1 and ctrl and shift:
-                    callback()
-    finally:
-        for fd in fds:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+    if "DejaVu Sans" in families:
+        return "DejaVu Sans"
+    return "TkDefaultFont"
 
 
 # ─────────────────────────────────────────────
@@ -254,10 +210,12 @@ class TextTool:
         self.topmost = True
         self.root.protocol("WM_DELETE_WINDOW", self._hide_to_tray)
 
+        self._font_family = _resolve_font_family(self.root)
+
         # Input pane (source text — paste/capture lands here)
         input_frame = tk.LabelFrame(self.root, text="Input", padx=4, pady=2)
         input_frame.pack(fill="both", expand=True, padx=5, pady=(5, 2))
-        self.input_var = tk.Text(input_frame, wrap="word", font=("Noto Sans Math", 10),
+        self.input_var = tk.Text(input_frame, wrap="word", font=(self._font_family, 10),
                                  undo=True, maxundo=200, height=4)
         self.input_var.pack(fill="both", expand=True)
         self.input_var.bind("<<Modified>>", self._on_modified)
@@ -265,7 +223,7 @@ class TextTool:
         # Preview pane (read-only result of transforms)
         preview_frame = tk.LabelFrame(self.root, text="Preview", padx=4, pady=2)
         preview_frame.pack(fill="both", expand=True, padx=5, pady=2)
-        self.preview_var = tk.Text(preview_frame, wrap="word", font=("Noto Sans Math", 10),
+        self.preview_var = tk.Text(preview_frame, wrap="word", font=(self._font_family, 10),
                                    state="disabled", height=4)
         self.preview_var.pack(fill="both", expand=True)
 
@@ -545,7 +503,7 @@ class TextTool:
         win_w = self.root.winfo_width() or 520
         win_h = self.root.winfo_height() or 460
         margin = 20
-        geo = self._primary_monitor_geometry()
+        geo = primary_monitor()
         if geo:
             mon_x, mon_y, mon_w, mon_h = geo
             x = max(0, mon_x + mon_w - win_w - margin)
@@ -555,27 +513,12 @@ class TextTool:
             y = max(0, self.root.winfo_screenheight() - win_h - margin)
         self.root.geometry(f"+{x}+{y}")
 
-    def _primary_monitor_geometry(self):
-        """Return (x, y, w, h) of the primary monitor via xrandr, or None."""
-        try:
-            out = subprocess.run(["xrandr", "--current"],
-                                 capture_output=True, text=True, timeout=5).stdout
-            for line in out.splitlines():
-                if "primary" not in line or " connected " not in line:
-                    continue
-                m = re.search(r'(\d+)x(\d+)\+(\d+)\+(\d+)', line)
-                if m:
-                    return int(m.group(3)), int(m.group(4)), int(m.group(1)), int(m.group(2))
-        except Exception:
-            pass
-        return None
-
     # ── Hotkey ──
 
     def _hotkey_listener(self):
         self._hotkey_stop = threading.Event()
         threading.Thread(
-            target=_evdev_listen,
+            target=hotkey_listen,
             args=(self._toggle_window, self._hotkey_stop),
             daemon=True,
         ).start()
