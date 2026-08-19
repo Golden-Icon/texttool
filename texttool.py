@@ -1,5 +1,4 @@
 import tkinter as tk
-import tkinter.simpledialog
 import pyperclip
 import threading
 import base64
@@ -314,6 +313,11 @@ class TextTool:
                 ("Numbered", self._prefix_numbered),
                 ("Task List", lambda: self._prefix_line("- [ ] ", "Task List")),
                 ("Link", self.discord_link),
+                ("Ts Time", lambda: self._discord_timestamp("t", "Time")),
+                ("Ts Date", lambda: self._discord_timestamp("d", "Date")),
+                ("Ts D/T", lambda: self._discord_timestamp("f", "Short Date/Time")),
+                ("Ts Long", lambda: self._discord_timestamp("F", "Long Date/Time")),
+                ("Ts Rel", lambda: self._discord_timestamp("R", "Relative Time")),
             ]),
         ]
 
@@ -348,6 +352,15 @@ class TextTool:
             self.options_frame.columnconfigure(c, weight=1)
         for cat, b in self.cat_buttons.items():
             b.config(relief="sunken" if cat == name else "raised")
+        self.root.after_idle(self._fit_window)
+
+    def _fit_window(self):
+        """Resize the window so every button in the current category is visible."""
+        self.root.update_idletasks()
+        req_w = max(self.root.winfo_reqwidth(), 520)
+        req_h = max(self.root.winfo_reqheight(), self.root.winfo_height())
+        self.root.geometry(f"{req_w}x{req_h}")
+        self._position_bottom_right()
 
     # ── Core helpers ──
 
@@ -399,11 +412,101 @@ class TextTool:
         self._render("\n".join(lines), name)
 
     def discord_link(self):
-        url = tk.simpledialog.askstring("Link",
-                                        "Enter URL:",
-                                        parent=self.root)
-        if url:
-            self._wrap("[", f"]({url})", "Link")
+        """Prompt for a URL in a modal dialog, then wrap as [text](url)."""
+        win = tk.Toplevel(self.root)
+        win.title("Link")
+        win.resizable(False, False)
+        win.transient(self.root)
+        win.grab_set()
+        x = self.root.winfo_rootx() + 60
+        y = self.root.winfo_rooty() + 60
+        win.geometry(f"+{x}+{y}")
+
+        tk.Label(win, text="Enter URL:").pack(padx=16, pady=(12, 4))
+        entry = tk.Entry(win, width=50)
+        entry.pack(padx=16, pady=4)
+        entry.focus_set()
+
+        def apply_link(event=None):
+            url = entry.get().strip()
+            win.destroy()
+            if url:
+                self._wrap("[", f"]({url})", "Link")
+            else:
+                self._status("No URL entered")
+
+        def cancel():
+            win.destroy()
+
+        frame = tk.Frame(win)
+        frame.pack(pady=(4, 12))
+        tk.Button(frame, text="Apply", command=apply_link, width=10).pack(side="left", padx=4)
+        tk.Button(frame, text="Cancel", command=cancel, width=10).pack(side="left", padx=4)
+        entry.bind("<Return>", apply_link)
+        win.bind("<Escape>", lambda e: cancel())
+        win.after(10, entry.focus_set)
+
+    def _to_epoch(self, text):
+        """Parse input text into a Unix epoch (seconds), or None.
+
+        Accepts: unix seconds/ms, "2026-08-19 16:00", "4:00 PM EST", etc.
+        A trailing timezone abbreviation is applied as a fixed UTC offset;
+        otherwise the time is taken as the machine's local time.
+        """
+        import datetime
+        text = text.strip()
+        if not text:
+            return None
+        if text.isdigit():
+            n = int(text)
+            return n if len(text) <= 10 else n // 1000
+
+        tz = None
+        tz_offsets = {
+            "UTC": 0, "GMT": 0, "EST": -5 * 3600, "EDT": -4 * 3600,
+            "CST": -6 * 3600, "CDT": -5 * 3600, "MST": -7 * 3600,
+            "MDT": -6 * 3600, "PST": -8 * 3600, "PDT": -7 * 3600,
+            "JST": 9 * 3600, "KST": 9 * 3600, "AEST": 10 * 3600,
+            "AEDT": 11 * 3600, "CET": 1 * 3600, "CEST": 2 * 3600,
+            "BST": 1 * 3600,
+        }
+        m = re.search(r'\b([A-Z]{3,4})\b$', text)
+        if m and m.group(1) in tz_offsets:
+            tz = tz_offsets[m.group(1)]
+            text = text[:m.start()].strip()
+
+        dt = None
+        time_only = False
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+                    "%Y-%m-%d %I:%M:%S %p", "%Y-%m-%d %I:%M %p",
+                    "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+                    "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y",
+                    "%I:%M:%S %p", "%I:%M %p", "%I %p", "%H:%M:%S", "%H:%M"):
+            try:
+                dt = datetime.datetime.strptime(text, fmt)
+                if fmt in ("%I:%M:%S %p", "%I:%M %p", "%I %p",
+                           "%H:%M:%S", "%H:%M"):
+                    time_only = True
+                break
+            except ValueError:
+                continue
+        if dt is None:
+            return None
+        if time_only:
+            dt = datetime.datetime.combine(datetime.date.today(), dt.time())
+        if tz is not None:
+            delta = datetime.timedelta(seconds=tz)
+            dt = dt.replace(tzinfo=datetime.timezone(delta))
+            return int(dt.timestamp())
+        return int(dt.timestamp())
+
+    def _discord_timestamp(self, fmt, name):
+        """Wrap input as a Discord dynamic timestamp <t:epoch:fmt>."""
+        epoch = self._to_epoch(self._get_input())
+        if epoch is None:
+            self._status("→ Timestamp: could not parse date")
+            return
+        self._render(f"<t:{epoch}:{fmt}>", name)
 
     # ── Case transforms ──
 
