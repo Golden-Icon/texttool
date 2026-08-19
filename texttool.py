@@ -13,6 +13,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from app_platform import hotkey_listen, primary_monitor
 
+VERSION = "0.2.0"
+
 
 # ─────────────────────────────────────────────
 # UNICODE MAPPING TABLES
@@ -219,7 +221,7 @@ def _resolve_font_family(root):
 class TextTool:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Text Tool")
+        self.root.title(f"Text Tool {VERSION}")
         self.root.geometry("520x460")
         self.root.minsize(460, 440)
         self.root.attributes("-topmost", True)

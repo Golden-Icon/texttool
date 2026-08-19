@@ -38,6 +38,7 @@ StartupNotify=false
 EOF
 
 echo "[3/4] Packaging AppImage..."
-"$APPIMAGE_TOOL" "$WORK/AppDir"
+VERSION="$("$PYTHON" -c 'import sys; sys.path.insert(0,"'"$HERE"'"); import texttool; print(texttool.VERSION)')"
+"$APPIMAGE_TOOL" "$WORK/AppDir" "TextTool-${VERSION}-x86_64.AppImage"
 
-echo "[4/4] Done: $(ls -1 TextTool-x86_64.AppImage 2>/dev/null || find "$WORK" -maxdepth 1 -name 'TextTool*.AppImage')"
+echo "[4/4] Done: TextTool-${VERSION}-x86_64.AppImage"

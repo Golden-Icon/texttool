@@ -22,20 +22,22 @@ jobs:
           pip install pyinstaller pyinstaller-hooks-contrib pystray Pillow pyperclip
 
       - name: Build with PyInstaller
+        shell: bash
         run: |
           pyinstaller --clean --noconfirm texttool.spec
+          echo "VERSION=$(python -c 'import sys;sys.path.insert(0,".");import texttool;print(texttool.VERSION)')" >> $GITHUB_ENV
 
       - name: Create installer zip
         run: |
-          Compress-Archive -Path dist\texttool\* -DestinationPath TextTool-Windows-x86_64.zip
+          Compress-Archive -Path dist\texttool\* -DestinationPath TextTool-${{ env.VERSION }}-Windows-x86_64.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TextTool-Windows-x86_64
-          path: TextTool-Windows-x86_64.zip
+          name: TextTool-${{ env.VERSION }}-Windows-x86_64
+          path: TextTool-${{ env.VERSION }}-Windows-x86_64.zip
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: TextTool-Windows-x86_64.zip
+          files: TextTool-${{ env.VERSION }}-Windows-x86_64.zip
